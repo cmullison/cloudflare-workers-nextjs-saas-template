@@ -76,57 +76,6 @@ export async function getTeamMembers(teamId: string) {
 }
 
 /**
- * Update a team member's role
- */
-export async function updateTeamMemberRole({
-  teamId,
-  userId,
-  roleId,
-  isSystemRole = false
-}: {
-  teamId: string;
-  userId: string;
-  roleId: string;
-  isSystemRole?: boolean;
-}) {
-  // Check if user has permission to change member roles
-  await requireTeamPermission(teamId, TEAM_PERMISSIONS.CHANGE_MEMBER_ROLES);
-
-  const db = getDB();
-
-  // Verify membership exists
-  const membership = await db.query.teamMembershipTable.findFirst({
-    where: and(
-      eq(teamMembershipTable.teamId, teamId),
-      eq(teamMembershipTable.userId, userId)
-    ),
-  });
-
-  if (!membership) {
-    throw new ZSAError("NOT_FOUND", "Team membership not found");
-  }
-
-  // Update the role
-  await db.update(teamMembershipTable)
-    .set({
-      roleId,
-      isSystemRole: isSystemRole ? 1 : 0,
-      updatedAt: new Date(),
-    })
-    .where(
-      and(
-        eq(teamMembershipTable.teamId, teamId),
-        eq(teamMembershipTable.userId, userId)
-      )
-    );
-
-  // Update the user's session to reflect the new role
-  await updateAllSessionsOfUser(userId);
-
-  return { success: true };
-}
-
-/**
  * Remove a member from a team
  */
 export async function removeTeamMember({
@@ -446,76 +395,6 @@ export async function acceptTeamInvitation(token: string) {
     success: true,
     teamId: invitation.teamId,
   };
-}
-
-/**
- * Get pending invitations for a team
- */
-export async function getTeamInvitations(teamId: string) {
-  // Check if user has permission to view invitations
-  await requireTeamPermission(teamId, TEAM_PERMISSIONS.INVITE_MEMBERS);
-
-  const db = getDB();
-
-  // Get invitations that have not been accepted
-  const invitations = await db.query.teamInvitationTable.findMany({
-    where: and(
-      eq(teamInvitationTable.teamId, teamId),
-      isNull(teamInvitationTable.acceptedAt)
-    ),
-    with: {
-      invitedByUser: {
-        columns: {
-          id: true,
-          firstName: true,
-          lastName: true,
-          email: true,
-          avatar: true,
-        }
-      }
-    },
-  });
-
-  return invitations.map(invitation => ({
-    id: invitation.id,
-    email: invitation.email,
-    roleId: invitation.roleId,
-    isSystemRole: Boolean(invitation.isSystemRole),
-    createdAt: new Date(invitation.createdAt),
-    expiresAt: invitation.expiresAt ? new Date(invitation.expiresAt) : null,
-    invitedBy: {
-      id: invitation.invitedByUser.id,
-      firstName: invitation.invitedByUser.firstName,
-      lastName: invitation.invitedByUser.lastName,
-      email: invitation.invitedByUser.email,
-      avatar: invitation.invitedByUser.avatar,
-    }
-  }));
-}
-
-/**
- * Cancel a team invitation
- */
-export async function cancelTeamInvitation(invitationId: string) {
-  const db = getDB();
-
-  // Find the invitation
-  const invitation = await db.query.teamInvitationTable.findFirst({
-    where: eq(teamInvitationTable.id, invitationId),
-  });
-
-  if (!invitation) {
-    throw new ZSAError("NOT_FOUND", "Invitation not found");
-  }
-
-  // Check if user has permission to cancel invitations for this team
-  await requireTeamPermission(invitation.teamId, TEAM_PERMISSIONS.INVITE_MEMBERS);
-
-  // Delete the invitation
-  await db.delete(teamInvitationTable)
-    .where(eq(teamInvitationTable.id, invitationId));
-
-  return { success: true };
 }
 
 /**
